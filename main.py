@@ -46,19 +46,22 @@ class ChatResponse(BaseModel):
 # ---------------------------
 @app.post("/chat", response_model=ChatResponse)
 def chat(req: ChatRequest):
+
     # Use hybrid search (semantic + keyword)
     results = hybrid_search(req.question, k=req.top_k)
 
-    # Collect contexts
+    # Normalize contexts
     contexts = [{**r, "text": r.get("text", "")} for r in results]
 
-    # Generate concise answer using LLM
-    answer_text = generate_answer(req.question, contexts)
+    # ---------------------------
+    # FIX: unpack the two values
+    # ---------------------------
+    answer_text, llm_citations = generate_answer(req.question, contexts)
 
-    # Build citations list
+    # Build frontend citations list
     citations = [
         Citation(
-            source_path=c["source_path"],
+            source_path=c.get("source_path", "unknown"),
             page_number=c.get("page_number"),
             section_heading=c.get("section_heading"),
             snippet=c.get("text", "")[:200]
