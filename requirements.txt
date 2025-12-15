@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+sentence-transformers
+faiss-cpu
+rank_bm25
+llama-cpp-python
+numpy
+pydantic

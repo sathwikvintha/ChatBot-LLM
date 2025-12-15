@@ -1,6 +1,5 @@
-# retriever/search.py
-
 import json
+import re
 from pathlib import Path
 import numpy as np
 from sentence_transformers import SentenceTransformer
@@ -11,12 +10,14 @@ INDEX_DIR = Path("data/index")   # Align with ingest.py outputs
 META_PATH = INDEX_DIR / "meta.json"
 FAISS_PATH = INDEX_DIR / "faiss.index"
 
+# Load embedding model
 model = SentenceTransformer("sentence-transformers/all-MiniLM-L6-v2")
+
+# Load FAISS index
 index = faiss.read_index(str(FAISS_PATH))
 
 def _load_metas(path: Path):
     raw = json.loads(path.read_text(encoding="utf-8"))
-    # meta.json can be a list or a dict keyed by chunk_id
     if isinstance(raw, dict):
         meta_list = list(raw.values())
     elif isinstance(raw, list):
@@ -24,7 +25,6 @@ def _load_metas(path: Path):
     else:
         raise ValueError("meta.json must be a list or a dict of chunk metadata")
 
-    # Optional: ensure chunk_id exists in each item
     for i, m in enumerate(meta_list):
         if "chunk_id" not in m:
             m["chunk_id"] = m.get("id", f"chunk_{i}")
@@ -32,7 +32,7 @@ def _load_metas(path: Path):
 
 metas = _load_metas(META_PATH)
 
-# Basic validation: FAISS vectors count should match meta count (best effort)
+# Basic validation
 try:
     ntotal = index.ntotal
     if ntotal != len(metas):
@@ -41,22 +41,29 @@ try:
 except Exception:
     pass
 
-# Prepare BM25 corpus from meta texts
+# Prepare BM25 corpus
+def _tokenize(text: str):
+    # Lowercase and strip punctuation
+    return re.findall(r"\b\w+\b", text.lower())
+
 corpus_texts = [m.get("text", "") for m in metas]
-tokenized_corpus = [t.lower().split() for t in corpus_texts]
+tokenized_corpus = [_tokenize(t) for t in corpus_texts]
 bm25 = BM25Okapi(tokenized_corpus)
 
 def faiss_topk(query: str, k: int = 10):
-    q = model.encode([query], normalize_embeddings=True)
+    q = model.encode([query], convert_to_numpy=True)
+    # Normalize query vector
+    q = q / np.linalg.norm(q, axis=1, keepdims=True)
     D, I = index.search(q, k)
     results = []
     for score, idx in zip(D[0], I[0]):
         m = metas[idx]
-        results.append({**m, "score": float(score)})
+        # Invert distance so higher = better similarity
+        results.append({**m, "score": float(-score)})
     return results
 
 def bm25_topk(query: str, k: int = 10):
-    tokens = query.lower().split()
+    tokens = _tokenize(query)
     scores = bm25.get_scores(tokens)
     idxs = np.argsort(scores)[-k:][::-1]
     results = []
@@ -69,8 +76,7 @@ def hybrid_search(query: str, k: int = 10):
     sem = faiss_topk(query, k)
     kw = bm25_topk(query, k)
 
-    # Merge by chunk_id
-    merged = {(r["chunk_id"]): r for r in sem}
+    merged = {r["chunk_id"]: r for r in sem}
     for r in kw:
         if r["chunk_id"] in merged:
             merged[r["chunk_id"]]["bm25"] = r.get("bm25", 0.0)
