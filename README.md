@@ -75,7 +75,7 @@ An enterprise-ready chatbot that combines a **FastAPI backend** with an **Angula
 - Backend
 
 		cd chatbot
-		python -m venv .venv && .\.venv\Scripts\Activate.ps1
+		python -m venv .venv ; .\.venv\Scripts\Activate.ps1
 		pip install -r requirements.txt
 		uvicorn main:app --reload
 
