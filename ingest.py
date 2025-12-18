@@ -151,7 +151,7 @@ def ingest():
 
     all_embeddings = np.array(all_embeddings)
     build_index(all_chunks, all_embeddings)
-    logging.info("✅ Ingestion complete: processed, chunks, embeddings, index built.")
+    logging.info("Ingestion complete: processed, chunks, embeddings, index built.")
 
 # -----------------------------
 # Entry point
