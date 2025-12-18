@@ -1,6 +1,6 @@
 # main.py
 
-import json
+import json, time, logging
 from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -8,14 +8,21 @@ from pydantic import BaseModel
 from typing import List, Optional
 
 from rag_api.generator import generate_answer
-from retriever.search import hybrid_search  # Uses robust meta loading internally
+from retriever.search import hybrid_search
+
+# ---------------------------
+# Setup logging
+# ---------------------------
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s"
+)
 
 # ---------------------------
 # FastAPI setup
 # ---------------------------
 app = FastAPI()
 
-# Allow Angular frontend (localhost:4200) to call backend
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:4200", "http://127.0.0.1:4200"],
@@ -46,19 +53,26 @@ class ChatResponse(BaseModel):
 # ---------------------------
 @app.post("/chat", response_model=ChatResponse)
 def chat(req: ChatRequest):
+    t_total = time.time()
+    logging.info("Received /chat request (main.py)")
 
-    # Use hybrid search (semantic + keyword)
+    # Step 1: Hybrid search
+    t_search = time.time()
     results = hybrid_search(req.question, k=req.top_k)
+    logging.info(f"Hybrid search completed in {time.time() - t_search:.2f}s")
 
-    # Normalize contexts
+    # Step 2: Normalize contexts
+    t_norm = time.time()
     contexts = [{**r, "text": r.get("text", "")} for r in results]
+    logging.info(f"Contexts normalized in {time.time() - t_norm:.2f}s")
 
-    # ---------------------------
-    # FIX: unpack the two values
-    # ---------------------------
+    # Step 3: Generate answer
+    t_gen = time.time()
     answer_text, llm_citations = generate_answer(req.question, contexts)
+    logging.info(f"Answer generated in {time.time() - t_gen:.2f}s")
 
-    # Build frontend citations list
+    # Step 4: Build citations
+    t_cite = time.time()
     citations = [
         Citation(
             source_path=c.get("source_path", "unknown"),
@@ -68,5 +82,8 @@ def chat(req: ChatRequest):
         )
         for c in contexts
     ]
+    logging.info(f"Citations built in {time.time() - t_cite:.2f}s")
+
+    logging.info(f"Total /chat request processed in {time.time() - t_total:.2f}s")
 
     return ChatResponse(answer=answer_text, citations=citations)
